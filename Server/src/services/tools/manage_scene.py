@@ -41,8 +41,8 @@ async def manage_scene(
         "move_to_scene",
         "validate",
     ], "Perform CRUD operations on Unity scenes and control the Scene View camera."],
-    name: Annotated[str, "Scene name."] | None = None,
-    path: Annotated[str, "Scene path."] | None = None,
+    name: Annotated[str, "Scene name (without extension, e.g. 'Main')."] = "",
+    path: Annotated[str, "Scene path (e.g. 'Assets/Scenes/Main.unity' or without extension)."] = "",
     build_index: Annotated[int | str,
                            "Unity build index (quote as string, e.g., '0')."] | None = None,
     # --- scene_view_frame params ---
@@ -82,6 +82,21 @@ async def manage_scene(
                            "For validate: true to auto-fix missing scripts (undoable)."] | None = None,
 ) -> dict[str, Any]:
     unity_instance = await get_unity_instance_from_context(ctx)
+
+    # Fast-fail with actionable hint when path-requiring actions get empty path.
+    # Prevents null-param loops: models see a schema that advertises `path` as nullable
+    # and retry forever instead of looking one up.
+    if action in ("load", "save", "create") and not path:
+        hint = await _list_scene_paths(ctx, unity_instance)
+        return {
+            "success": False,
+            "message": (
+                f"manage_scene action='{action}' requires a `path`. "
+                "Do NOT pass null — call manage_scene(action='get_build_settings') "
+                "to list scenes, or use one of these paths:\n" + hint
+            ),
+        }
+
     gate = await preflight(ctx, wait_for_no_compile=True, refresh_if_dirty=True)
     if gate is not None:
         return gate.model_dump()
@@ -157,3 +172,21 @@ async def manage_scene(
 
     except Exception as e:
         return {"success": False, "message": f"Python error managing scene: {str(e)}"}
+
+
+async def _list_scene_paths(ctx: Context, unity_instance) -> str:
+    """Return a bullet-list of scenes in build settings for error messages."""
+    try:
+        resp = await send_with_unity_instance(
+            async_send_command_with_retry,
+            unity_instance,
+            "manage_scene",
+            {"action": "get_build_settings"},
+        )
+        scenes = (resp or {}).get("data", {}).get("scenes", []) if isinstance(resp, dict) else []
+        paths = [s.get("path") for s in scenes if isinstance(s, dict) and s.get("path")]
+        if not paths:
+            return "  (no scenes in build settings — try manage_asset(action='search', search_pattern='*.unity'))"
+        return "\n".join(f"  - {p}" for p in paths[:20])
+    except Exception:
+        return "  (could not query build settings)"
