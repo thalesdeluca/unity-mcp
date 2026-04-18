@@ -605,6 +605,12 @@ def create_mcp_server(project_scoped_tools: bool) -> FastMCP:
                 logger.exception("CLI custom tools error: %s", e)
                 return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
+    # Sanitize LLM-quoted/null tool-call arguments *before* pydantic validation.
+    # Must be added before unity_middleware so cleaning happens first in the chain.
+    from transport.llm_arg_sanitizer_middleware import LlmArgSanitizerMiddleware
+    mcp.add_middleware(LlmArgSanitizerMiddleware())
+    logger.info("Registered LLM argument sanitizer middleware")
+
     # Initialize and register middleware for session-based Unity instance routing
     # Using the singleton getter ensures we use the same instance everywhere
     unity_middleware = get_unity_instance_middleware()
