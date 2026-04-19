@@ -19,14 +19,33 @@ async def manage_editor(
     ctx: Context,
     action: Annotated[Literal["telemetry_status", "telemetry_ping", "play", "pause", "stop", "set_active_tool", "add_tag", "remove_tag", "add_layer", "remove_layer", "deploy_package", "restore_package", "undo", "redo"], "Get and update the Unity Editor state. deploy_package copies the configured MCPForUnity source into the project's package location (triggers recompile). restore_package reverts the last deployment from backup. undo/redo perform editor undo/redo. For prefab editing (open/save/close prefab stage), use manage_prefabs."],
     tool_name: Annotated[str,
-                         "Tool name when setting active tool"] | None = None,
+                         "Tool name when setting active tool. Required for set_active_tool. Pass a bare string, never null."] = "",
     tag_name: Annotated[str,
-                        "Tag name when adding and removing tags"] | None = None,
+                        "Tag name when adding and removing tags. Required for add_tag / remove_tag. Pass a bare string, never null."] = "",
     layer_name: Annotated[str,
-                          "Layer name when adding and removing layers"] | None = None,
+                          "Layer name when adding and removing layers. Required for add_layer / remove_layer. Pass a bare string, never null."] = "",
 ) -> dict[str, Any]:
     # Get active instance from request state (injected by middleware)
     unity_instance = await get_unity_instance_from_context(ctx)
+
+    # Fast-fail action-required params so models don't loop on null/empty.
+    required_map = {
+        "set_active_tool": ("tool_name", tool_name),
+        "add_tag": ("tag_name", tag_name),
+        "remove_tag": ("tag_name", tag_name),
+        "add_layer": ("layer_name", layer_name),
+        "remove_layer": ("layer_name", layer_name),
+    }
+    if action in required_map:
+        param_name, param_value = required_map[action]
+        if not param_value or not param_value.strip():
+            return {
+                "success": False,
+                "message": (
+                    f"manage_editor action='{action}' requires `{param_name}`. "
+                    f"Pass a bare string — do NOT pass null."
+                ),
+            }
 
     try:
         # Diagnostics: quick telemetry checks
@@ -37,14 +56,14 @@ async def manage_editor(
             record_tool_usage("diagnostic_ping", True, 1.0, None)
             return {"success": True, "message": "telemetry ping queued"}
 
-        # Prepare parameters, removing None values
-        params = {
-            "action": action,
-            "toolName": tool_name,
-            "tagName": tag_name,
-            "layerName": layer_name,
-        }
-        params = {k: v for k, v in params.items() if v is not None}
+        # Prepare parameters, dropping empty strings.
+        params: dict[str, Any] = {"action": action}
+        if tool_name:
+            params["toolName"] = tool_name
+        if tag_name:
+            params["tagName"] = tag_name
+        if layer_name:
+            params["layerName"] = layer_name
 
         # Send command using centralized retry helper with instance routing
         response = await send_with_unity_instance(async_send_command_with_retry, unity_instance, "manage_editor", params)

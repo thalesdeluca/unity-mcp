@@ -59,8 +59,8 @@ async def manage_prefabs(
         ],
         "Prefab operation to perform.",
     ],
-    prefab_path: Annotated[str, "Prefab asset path (e.g., Assets/Prefabs/MyPrefab.prefab)."] | None = None,
-    target: Annotated[str, "Target GameObject: scene object for create_from_gameobject, or object within prefab for modify_contents (name or path like 'Parent/Child')."] | None = None,
+    prefab_path: Annotated[str, "Prefab asset path (e.g., 'Assets/Prefabs/MyPrefab.prefab'). Required for most actions — pass a bare string, never null."] = "",
+    target: Annotated[str, "Target GameObject: scene object for create_from_gameobject, or object within prefab for modify_contents (name or path like 'Parent/Child'). Pass a bare string, never null."] = "",
     allow_overwrite: Annotated[bool, "Allow replacing existing prefab."] | None = None,
     search_inactive: Annotated[bool, "Include inactive GameObjects in search."] | None = None,
     unlink_if_instance: Annotated[bool, "Unlink from existing prefab before creating new one."] | None = None,
@@ -80,7 +80,7 @@ async def manage_prefabs(
     component_properties: Annotated[dict[str, dict[str, Any]], "Set properties on existing components in modify_contents. Keys are component type names, values are dicts of property name to value. Example: {\"Rigidbody\": {\"mass\": 5.0}, \"MyScript\": {\"health\": 100}}. Supports object references via {\"guid\": \"...\"}, {\"path\": \"Assets/...\"}, or {\"instanceID\": 123}. For Sprite sub-assets: {\"guid\": \"...\", \"spriteName\": \"<name>\"}. Single-sprite textures auto-resolve."] | None = None,
 ) -> dict[str, Any]:
     # Back-compat: map 'name' → 'target' for create_from_gameobject (Unity accepts both)
-    if action == "create_from_gameobject" and target is None and name is not None:
+    if action == "create_from_gameobject" and not target and name:
         target = name
 
     # Validate required parameters
